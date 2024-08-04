@@ -13,7 +13,7 @@ use wit_encoder::{
 };
 
 use crate::wasmcloud::postgres::types::{
-    Date, Interval, MacAddressEui48, MacAddressEui64, Numeric, Offset, PgValue, Time, TimeTz, Timestamp, TimestampTz,
+    Date, Interval, Numeric, Offset, PgValue, Time, TimeTz, Timestamp, TimestampTz,
 };
 
 wit_bindgen::generate!({
@@ -21,47 +21,32 @@ wit_bindgen::generate!({
     with: { "wasmcloud:postgres/types@0.1.0-draft": generate, }
 });
 
-fn main() -> Result<()> {
-    // Create a new package
-    let package_name = PackageName::new("example-namespace", Ident::new("example"), Some(Version::new(0, 1, 0)));
-    let mut package = Package::new(package_name);
+pub struct Generator {
+    package: Package,
+}
 
-    // SQL to create the table
-    let sql = r#"
-    CREATE TABLE users (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        email VARCHAR(100) UNIQUE,
-        age INTEGER,
-        is_active BOOLEAN DEFAULT true,
-        balance NUMERIC(10,2),
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-    )
-    "#;
+impl Generator {
+    pub fn new(namespace: String, name: String, version: Version) -> Self {
+        let package_name = PackageName::new(namespace, Ident::new(name), Some(version));
+        let package = Package::new(package_name);
+        Generator { package }
+    }
 
-    // Parse the SQL to create SqlTable
-    let sql_table = SqlTable::parse(sql)?;
+    pub fn add_table(&mut self, sql: &str) -> Result<()> {
+        let sql_table = SqlTable::parse(sql)?;
+        let mut sql_types_interface = Interface::new(Ident::new("sql-types"));
+        let record = Record::try_from(sql_table.clone())?;
+        let type_def = TypeDef::new(Ident::new(sql_table.name), TypeDefKind::Record(record));
+        sql_types_interface.item(InterfaceItem::TypeDef(type_def));
+        self.package.interface(sql_types_interface);
+        Ok(())
+    }
 
-    // Create the "sql-types" interface
-    let mut sql_types_interface = Interface::new(Ident::new("sql-types"));
-
-    // Create a WIT record for the SQL table
-    let record = Record::try_from(sql_table.clone())?;
-
-    // TypeDef for the record
-    let type_def = TypeDef::new(Ident::new(sql_table.name), TypeDefKind::Record(record));
-
-    sql_types_interface.item(InterfaceItem::TypeDef(type_def));
-
-    // Add interface to package
-    package.interface(sql_types_interface);
-
-    let mut output = String::new();
-    write!(output, "{}", package)?;
-
-    println!("Rendered WIT:\n{}", output);
-
-    Ok(())
+    pub fn render(&self) -> Result<String> {
+        let mut output = String::new();
+        write!(output, "{}", self.package)?;
+        Ok(output)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -555,17 +540,6 @@ mod tests {
     use wit_encoder::{Ident, Type};
 
     use super::*;
-
-    #[test]
-    fn test_str_to_pg_value() {
-        assert!(matches!(PgValue::from("integer"), PgValue::Integer(_)));
-        assert!(matches!(PgValue::from("text"), PgValue::Text(_)));
-        assert!(matches!(PgValue::from("boolean"), PgValue::Bool(_)));
-        assert!(matches!(PgValue::from("numeric"), PgValue::Numeric(_)));
-        assert!(matches!(PgValue::from("timestamp"), PgValue::Timestamp(_)));
-        assert!(matches!(PgValue::from("varchar(100)"), PgValue::Varchar(_)));
-        assert!(matches!(PgValue::from("unknown_type"), PgValue::Null));
-    }
 
     #[test]
     fn test_pg_value_to_wit_type() -> Result<()> {

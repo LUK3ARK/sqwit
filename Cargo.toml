@@ -4,6 +4,14 @@ version = "0.1.0"
 edition = "2021"
 authors = ["luk3ark"]
 
+[lib]
+name = "sqwit"
+path = "src/lib.rs"
+
+[[example]]
+name = "witify"
+path = "examples/witify.rs"
+
 [dependencies]
 anyhow = "1.0.86"
 regex = "1.10.6"
