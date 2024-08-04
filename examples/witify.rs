@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::Result;
 use semver::Version;
 use sqwit::Generator;
@@ -64,8 +66,13 @@ fn main() -> Result<()> {
     "#;
     generator.add_table(reviews_sql)?;
 
-    let output = generator.render()?;
-    println!("Rendered WIT:\n{}", output);
+    // Specify the output directory
+    let output_dir = Path::new("./output");
+
+    // Write the WIT types to a file
+    generator.write_to_file(output_dir)?;
+
+    println!("WIT types have been generated and written to file.");
 
     Ok(())
 }
