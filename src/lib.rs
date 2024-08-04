@@ -1,8 +1,9 @@
 use std::{
+    borrow::Cow,
     collections::HashMap,
-    fmt::Write,
+    fmt::Write as FmtWrite,
     fs::{self, File},
-    io::Write,
+    io::Write as IoWrite,
     path::Path,
 };
 
@@ -39,8 +40,10 @@ impl Generator {
     pub fn new(namespace: impl Into<String>, name: impl Into<String>, version: Option<Version>) -> Self {
         let package_namespace = namespace.into();
         let package_name = name.into();
-        let package_name_ident = Ident::new(&package_name);
-        let package_name_full = PackageName::new(&package_namespace, package_name_ident, version);
+
+        let package_name_ident = Ident::new(Cow::Owned(package_name.clone()));
+
+        let package_name_full = PackageName::new(Cow::Owned(package_namespace.clone()), package_name_ident, version);
         let package = Package::new(package_name_full);
         let sql_types_interface = Interface::new(Ident::new("sql-types"));
 
