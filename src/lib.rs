@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{collections::HashMap, fmt::Write};
 
 use anyhow::{anyhow, Result};
 use semver::Version;
@@ -23,26 +23,36 @@ wit_bindgen::generate!({
 
 pub struct Generator {
     package: Package,
+    sql_types_interface: Interface,
+    tables: HashMap<String, Record>,
 }
 
 impl Generator {
-    pub fn new(namespace: String, name: String, version: Version) -> Self {
-        let package_name = PackageName::new(namespace, Ident::new(name), Some(version));
+    pub fn new(namespace: impl Into<String>, name: impl Into<Ident>, version: Option<Version>) -> Self {
+        let package_name = PackageName::new(namespace, name, version);
         let package = Package::new(package_name);
-        Generator { package }
+        let sql_types_interface = Interface::new(Ident::new("sql-types"));
+        Generator {
+            package,
+            sql_types_interface,
+            tables: HashMap::new(),
+        }
     }
 
     pub fn add_table(&mut self, sql: &str) -> Result<()> {
         let sql_table = SqlTable::parse(sql)?;
-        let mut sql_types_interface = Interface::new(Ident::new("sql-types"));
         let record = Record::try_from(sql_table.clone())?;
-        let type_def = TypeDef::new(Ident::new(sql_table.name), TypeDefKind::Record(record));
-        sql_types_interface.item(InterfaceItem::TypeDef(type_def));
-        self.package.interface(sql_types_interface);
+        self.tables.insert(sql_table.name.clone(), record);
         Ok(())
     }
 
-    pub fn render(&self) -> Result<String> {
+    pub fn render(&mut self) -> Result<String> {
+        for (table_name, record) in self.tables.drain() {
+            let type_def = TypeDef::new(Ident::new(table_name), TypeDefKind::Record(record));
+            self.sql_types_interface.item(InterfaceItem::TypeDef(type_def));
+        }
+        self.package.interface(self.sql_types_interface.clone());
+
         let mut output = String::new();
         write!(output, "{}", self.package)?;
         Ok(output)

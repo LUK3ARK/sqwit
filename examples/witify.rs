@@ -3,11 +3,7 @@ use semver::Version;
 use sqwit::Generator;
 
 fn main() -> Result<()> {
-    let mut generator = Generator::new(
-        "example-namespace".to_string(),
-        "example".to_string(),
-        Version::new(0, 1, 0),
-    );
+    let mut generator = Generator::new("example-namespace", "example", Some(Version::new(0, 1, 0)));
 
     // Users table
     let users_sql = r#"
