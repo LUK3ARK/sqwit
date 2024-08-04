@@ -3,11 +3,13 @@ use std::fmt::Write;
 use anyhow::{anyhow, Result};
 use semver::Version;
 use wit_encoder::{
-    Field, Ident, Interface, InterfaceItem, Package, PackageName, Record, Tuple, Type, TypeDef, TypeDefKind,
+    Field, Ident, Interface, InterfaceItem, Package, PackageName, Record, Tuple, Type, TypeDef,
+    TypeDefKind,
 };
 
 use crate::wasmcloud::postgres::types::{
-    Date, Interval, MacAddressEui48, MacAddressEui64, Offset, PgValue, Time, TimeTz, Timestamp, TimestampTz,
+    Date, Interval, MacAddressEui48, MacAddressEui64, Offset, PgValue, Time, TimeTz, Timestamp,
+    TimestampTz,
 };
 
 wit_bindgen::generate!({
@@ -27,7 +29,11 @@ struct SqlTable {
 
 fn main() -> Result<()> {
     // Create a new package
-    let package_name = PackageName::new("example-namespace", Ident::new("example"), Some(Version::new(0, 1, 0)));
+    let package_name = PackageName::new(
+        "example-namespace",
+        Ident::new("example"),
+        Some(Version::new(0, 1, 0)),
+    );
     let mut package = Package::new(package_name);
 
     // Create the SQL table definition
@@ -68,7 +74,10 @@ fn main() -> Result<()> {
     let record = create_wit_record(sql_table.columns)?;
 
     // TypeDef for the record
-    let type_def = TypeDef::new(Ident::new(sql_table.name.clone()), TypeDefKind::Record(record));
+    let type_def = TypeDef::new(
+        Ident::new(sql_table.name.clone()),
+        TypeDefKind::Record(record),
+    );
 
     sql_types_interface.item(InterfaceItem::TypeDef(type_def));
 
@@ -260,14 +269,18 @@ fn create_wit_record(columns: Vec<SqlColumn>) -> Result<Record> {
 fn pg_value_to_wit_type(pg_value: &PgValue) -> Result<Type> {
     match pg_value {
         PgValue::Null => Err(anyhow!("Unable to map null to WIT type")),
-        PgValue::BigInt(_) | PgValue::Int8(_) | PgValue::BigSerial(_) | PgValue::Serial8(_) => Ok(Type::S64),
+        PgValue::BigInt(_) | PgValue::Int8(_) | PgValue::BigSerial(_) | PgValue::Serial8(_) => {
+            Ok(Type::S64)
+        }
         PgValue::Bool(_) | PgValue::Boolean(_) => Ok(Type::Bool),
         PgValue::Double(_) | PgValue::Float8(_) => Ok(Type::Named(Ident::new("hashable-f64"))),
         PgValue::Real(_) | PgValue::Float4(_) => Ok(Type::Named(Ident::new("hashable-f32"))),
         PgValue::Integer(_) | PgValue::Int(_) | PgValue::Int4(_) => Ok(Type::S32),
         PgValue::Numeric(_) | PgValue::Decimal(_) => Ok(Type::Named(Ident::new("numeric"))),
         PgValue::Serial(_) | PgValue::Serial4(_) => Ok(Type::U32),
-        PgValue::SmallInt(_) | PgValue::Int2(_) | PgValue::SmallSerial(_) | PgValue::Serial2(_) => Ok(Type::S16),
+        PgValue::SmallInt(_) | PgValue::Int2(_) | PgValue::SmallSerial(_) | PgValue::Serial2(_) => {
+            Ok(Type::S16)
+        }
         PgValue::Bit(_) => {
             let mut tuple = Tuple::empty();
             tuple.type_(Type::U32);
@@ -283,8 +296,12 @@ fn pg_value_to_wit_type(pg_value: &PgValue) -> Result<Type> {
         PgValue::Bytea(_) => Ok(Type::List(Box::new(Type::U8))),
         PgValue::Int8Array(_) => Ok(Type::List(Box::new(Type::S64))),
         PgValue::BoolArray(_) => Ok(Type::List(Box::new(Type::Bool))),
-        PgValue::Float8Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("hashable-f64"))))),
-        PgValue::Float4Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("hashable-f32"))))),
+        PgValue::Float8Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new(
+            "hashable-f64",
+        ))))),
+        PgValue::Float4Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new(
+            "hashable-f32",
+        ))))),
         PgValue::Int4Array(_) => Ok(Type::List(Box::new(Type::S32))),
         PgValue::NumericArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("numeric"))))),
         PgValue::Int2Array(_) | PgValue::Int2Vector(_) => Ok(Type::List(Box::new(Type::S16))),
@@ -302,10 +319,13 @@ fn pg_value_to_wit_type(pg_value: &PgValue) -> Result<Type> {
             Ok(Type::List(Box::new(Type::Tuple(inner_tuple))))
         }
         PgValue::ByteaArray(_) => Ok(Type::List(Box::new(Type::List(Box::new(Type::U8))))),
-        PgValue::Char(_) | PgValue::Varchar(_) | PgValue::Text(_) | PgValue::Name(_) => Ok(Type::String),
-        PgValue::CharArray(_) | PgValue::VarcharArray(_) | PgValue::TextArray(_) | PgValue::NameArray(_) => {
-            Ok(Type::List(Box::new(Type::String)))
+        PgValue::Char(_) | PgValue::Varchar(_) | PgValue::Text(_) | PgValue::Name(_) => {
+            Ok(Type::String)
         }
+        PgValue::CharArray(_)
+        | PgValue::VarcharArray(_)
+        | PgValue::TextArray(_)
+        | PgValue::NameArray(_) => Ok(Type::List(Box::new(Type::String))),
         PgValue::Date(_) => Ok(Type::Named(Ident::new("date"))),
         PgValue::DateArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("date"))))),
         PgValue::Time(_) => Ok(Type::Named(Ident::new("time"))),
@@ -313,9 +333,13 @@ fn pg_value_to_wit_type(pg_value: &PgValue) -> Result<Type> {
         PgValue::TimeTz(_) => Ok(Type::Named(Ident::new("time-tz"))),
         PgValue::TimeTzArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("time-tz"))))),
         PgValue::Timestamp(_) => Ok(Type::Named(Ident::new("timestamp"))),
-        PgValue::TimestampArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("timestamp"))))),
+        PgValue::TimestampArray(_) => {
+            Ok(Type::List(Box::new(Type::Named(Ident::new("timestamp")))))
+        }
         PgValue::TimestampTz(_) => Ok(Type::Named(Ident::new("timestamp-tz"))),
-        PgValue::TimestampTzArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("timestamp-tz"))))),
+        PgValue::TimestampTzArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new(
+            "timestamp-tz",
+        ))))),
         PgValue::Interval(_) => Ok(Type::Named(Ident::new("interval"))),
         PgValue::IntervalArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("interval"))))),
         PgValue::Uuid(_) => Ok(Type::String),
@@ -348,10 +372,12 @@ fn pg_value_to_wit_type(pg_value: &PgValue) -> Result<Type> {
             inner_tuple.type_(Type::Named(Ident::new("point")));
             Ok(Type::List(Box::new(Type::Tuple(inner_tuple))))
         }
-        PgValue::Path(_) | PgValue::Polygon(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("point"))))),
-        PgValue::PathArray(_) | PgValue::PolygonArray(_) => Ok(Type::List(Box::new(Type::List(Box::new(
-            Type::Named(Ident::new("point")),
-        ))))),
+        PgValue::Path(_) | PgValue::Polygon(_) => {
+            Ok(Type::List(Box::new(Type::Named(Ident::new("point")))))
+        }
+        PgValue::PathArray(_) | PgValue::PolygonArray(_) => Ok(Type::List(Box::new(Type::List(
+            Box::new(Type::Named(Ident::new("point"))),
+        )))),
         PgValue::Circle(_) => {
             let mut tuple = Tuple::empty();
             tuple.type_(Type::Named(Ident::new("point")));
@@ -367,9 +393,13 @@ fn pg_value_to_wit_type(pg_value: &PgValue) -> Result<Type> {
         PgValue::Money(_) => Ok(Type::Named(Ident::new("numeric"))),
         PgValue::MoneyArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("numeric"))))),
         PgValue::Macaddr(_) => Ok(Type::Named(Ident::new("mac-address-eui48"))),
-        PgValue::MacaddrArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("mac-address-eui48"))))),
+        PgValue::MacaddrArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new(
+            "mac-address-eui48",
+        ))))),
         PgValue::Macaddr8(_) => Ok(Type::Named(Ident::new("mac-address-eui64"))),
-        PgValue::Macaddr8Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("mac-address-eui64"))))),
+        PgValue::Macaddr8Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new(
+            "mac-address-eui64",
+        ))))),
         PgValue::Inet(_) | PgValue::Cidr(_) => Ok(Type::String),
         PgValue::InetArray(_) | PgValue::CidrArray(_) => Ok(Type::List(Box::new(Type::String))),
         PgValue::Json(_) | PgValue::Jsonb(_) => Ok(Type::String),
@@ -424,9 +454,9 @@ mod tests {
         assert_eq!(fields[3].name(), &Ident::new("is_active"));
         assert_eq!(fields[3].ty(), &Type::Bool);
         assert_eq!(fields[4].name(), &Ident::new("balance"));
-        assert_eq!(fields[4].ty(), &Type::Named(Ident::new("numeric"))); // Updated expectation
+        assert_eq!(fields[4].ty(), &Type::Named(Ident::new("numeric")));
         assert_eq!(fields[5].name(), &Ident::new("created_at"));
-        assert_eq!(fields[5].ty(), &Type::Named(Ident::new("timestamp"))); // Updated expectation
+        assert_eq!(fields[5].ty(), &Type::Named(Ident::new("timestamp")));
 
         Ok(())
     }
