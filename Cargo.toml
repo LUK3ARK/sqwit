@@ -3,6 +3,7 @@ name = "sqwit"
 version = "0.1.0"
 edition = "2021"
 authors = ["luk3ark"]
+license = "MIT"
 
 [lib]
 name = "sqwit"
