@@ -322,7 +322,13 @@ impl TryFrom<SqlTable> for Record {
             .iter()
             .map(|column| {
                 let pg_value: PgValue = column.data_type.clone().into();
-                let wit_type = Type::try_from(pg_value)?;
+                let mut wit_type = Type::try_from(pg_value)?;
+
+                // If the column is nullable, wrap the type in an Option
+                if column.nullable {
+                    wit_type = Type::Option(Box::new(wit_type));
+                }
+
                 Ok(Field::new(Ident::new(column.name.clone()), wit_type))
             })
             .collect::<Result<Vec<_>>>()?;

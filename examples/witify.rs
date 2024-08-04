@@ -39,12 +39,12 @@ fn main() -> Result<()> {
     let orders_sql = r#"
     CREATE TABLE orders (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id INTEGER REFERENCES users(id),
+        user_id INTEGER REFERENCES users(id) NOT NULL,
         order_date TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
         total_amount DECIMAL(12,2) NOT NULL,
         status VARCHAR(20) CHECK (status IN ('pending', 'processing', 'shipped', 'delivered', 'cancelled')),
         shipping_address TEXT NOT NULL,
-        billing_address TEXT NOT NULL
+        billing_address TEXT NULL
     )
     "#;
     generator.add_table(orders_sql)?;
