@@ -1,0 +1,11 @@
+[package]
+name = "sqwit"
+version = "0.1.0"
+edition = "2021"
+authors = ["luk3ark"]
+
+[dependencies]
+anyhow = "1.0.86"
+semver = "1.0.23"
+wit-bindgen = { version = "0.29.0", features = ["macros"] }
+wit-encoder = "0.215.0"

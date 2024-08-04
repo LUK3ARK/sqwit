@@ -1,0 +1,5 @@
+package lattica:sqwit@0.1.0;
+
+world sqwit {
+    import wasmcloud:postgres/types@0.1.0-draft;
+}
