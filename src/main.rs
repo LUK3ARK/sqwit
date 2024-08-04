@@ -19,6 +19,7 @@ use crate::wasmcloud::postgres::types::{
 };
 
 wit_bindgen::generate!({
+    additional_derives: [Default],
     generate_unused_types: true,
     with: { "wasmcloud:postgres/types@0.1.0-draft": generate, }
 });
@@ -720,67 +721,67 @@ impl TryFrom<&PgValue> for Type {
     }
 }
 
-impl Default for Interval {
-    fn default() -> Self {
-        Interval {
-            end: Date::default(),
-            end_inclusive: bool::default(),
-            start: Date::default(),
-            start_inclusive: bool::default(),
-        }
-    }
-}
+// impl Default for Interval {
+//     fn default() -> Self {
+//         Interval {
+//             end: Date::default(),
+//             end_inclusive: bool::default(),
+//             start: Date::default(),
+//             start_inclusive: bool::default(),
+//         }
+//     }
+// }
 
-impl Default for TimestampTz {
-    fn default() -> Self {
-        TimestampTz {
-            offset: Offset::default(),
-            timestamp: Timestamp::default(),
-        }
-    }
-}
+// impl Default for TimestampTz {
+//     fn default() -> Self {
+//         TimestampTz {
+//             offset: Offset::default(),
+//             timestamp: Timestamp::default(),
+//         }
+//     }
+// }
 
-impl Default for Offset {
-    fn default() -> Self {
-        // Default to UTC (no offset)
-        Offset::WesternHemisphereSecs(0)
-    }
-}
+// impl Default for Offset {
+//     fn default() -> Self {
+//         // Default to UTC (no offset)
+//         Offset::WesternHemisphereSecs(0)
+//     }
+// }
 
-impl Default for Timestamp {
-    fn default() -> Self {
-        Timestamp {
-            date: Date::default(),
-            time: Time::default(),
-        }
-    }
-}
+// impl Default for Timestamp {
+//     fn default() -> Self {
+//         Timestamp {
+//             date: Date::default(),
+//             time: Time::default(),
+//         }
+//     }
+// }
 
-impl Default for TimeTz {
-    fn default() -> Self {
-        TimeTz {
-            timesonze: String::default(),
-            time: Time::default(),
-        }
-    }
-}
+// impl Default for TimeTz {
+//     fn default() -> Self {
+//         TimeTz {
+//             timesonze: String::default(),
+//             time: Time::default(),
+//         }
+//     }
+// }
 
-impl Default for Date {
-    fn default() -> Self {
-        Date::PositiveInfinity
-    }
-}
+// impl Default for Date {
+//     fn default() -> Self {
+//         Date::PositiveInfinity
+//     }
+// }
 
-impl Default for Time {
-    fn default() -> Self {
-        Time {
-            hour: 0,
-            min: 0,
-            sec: 0,
-            micro: 0,
-        }
-    }
-}
+// impl Default for Time {
+//     fn default() -> Self {
+//         Time {
+//             hour: 0,
+//             min: 0,
+//             sec: 0,
+//             micro: 0,
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
