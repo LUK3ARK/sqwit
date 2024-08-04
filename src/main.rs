@@ -1,25 +1,17 @@
-use crate::wasmcloud::postgres::types::Numeric;
 use anyhow::{anyhow, Result};
 use serde_json::json;
-use sqlparser::ast::CharacterLength;
-use sqlparser::ast::ColumnDef;
-use sqlparser::ast::ColumnOption;
-use sqlparser::ast::DataType;
-use sqlparser::ast::ExactNumberInfo;
-use sqlparser::ast::Statement;
-use sqlparser::ast::StructField;
-use sqlparser::ast::TimezoneInfo;
-use sqlparser::dialect::GenericDialect;
-use sqlparser::parser::Parser;
+use sqlparser::{
+    ast::{ColumnDef, ColumnOption, DataType, Statement, StructField, TimezoneInfo},
+    dialect::GenericDialect,
+    parser::Parser,
+};
 use wit_encoder::{Field, Ident, Record, Tuple, Type};
 
 use crate::wasmcloud::postgres::types::{
-    Date, Interval, MacAddressEui48, MacAddressEui64, Offset, PgValue, Time, TimeTz, Timestamp,
-    TimestampTz,
+    Date, Interval, MacAddressEui48, MacAddressEui64, Numeric, Offset, PgValue, Time, TimeTz, Timestamp, TimestampTz,
 };
 
 wit_bindgen::generate!({
-    additional_derives: [Default],
     generate_unused_types: true,
     with: { "wasmcloud:postgres/types@0.1.0-draft": generate, }
 });
@@ -115,8 +107,7 @@ impl SqlTable {
         match &ast[0] {
             Statement::CreateTable(create_table) => {
                 let table_name = create_table.name.to_string();
-                let parsed_columns: Vec<SqlColumn> =
-                    create_table.columns.iter().map(parse_column).collect();
+                let parsed_columns: Vec<SqlColumn> = create_table.columns.iter().map(parse_column).collect();
 
                 Ok(SqlTable {
                     name: table_name,
@@ -131,10 +122,16 @@ impl SqlTable {
 fn parse_column(col: &ColumnDef) -> SqlColumn {
     let name = col.name.value.to_string();
     let data_type = col.data_type.clone();
-    let nullable = !col
-        .options
-        .iter()
-        .any(|opt| matches!(opt.option, ColumnOption::NotNull));
+    let nullable = !col.options.iter().any(|opt| {
+        matches!(
+            opt.option,
+            ColumnOption::NotNull
+                | ColumnOption::Unique {
+                    is_primary: true,
+                    characteristics: _
+                }
+        )
+    });
 
     SqlColumn {
         name,
@@ -148,19 +145,15 @@ impl From<DataType> for PgValue {
         match data_type {
             // Numeric types
             DataType::UnsignedInt8(_) => PgValue::BigInt(0),
-            DataType::TinyInt(_)
-            | DataType::UInt8
-            | DataType::Int2(_)
-            | DataType::SmallInt(_)
-            | DataType::Int16 => PgValue::SmallInt(0),
+            DataType::TinyInt(_) | DataType::UInt8 | DataType::Int2(_) | DataType::SmallInt(_) | DataType::Int16 => {
+                PgValue::SmallInt(0)
+            }
             DataType::UnsignedTinyInt(_)
             | DataType::UnsignedInt2(_)
             | DataType::UnsignedSmallInt(_)
             | DataType::UInt16
             | DataType::MediumInt(_) => PgValue::Integer(0), // Map to larger type to accommodate unsigned range
-            DataType::Int(_) | DataType::Integer(_) | DataType::Int4(_) | DataType::Int32 => {
-                PgValue::Integer(0)
-            }
+            DataType::Int(_) | DataType::Integer(_) | DataType::Int4(_) | DataType::Int32 => PgValue::Integer(0),
             DataType::BigInt(_)
             | DataType::Int8(_)
             | DataType::Int64
@@ -177,30 +170,23 @@ impl From<DataType> for PgValue {
             | DataType::Int256
             | DataType::BigNumeric(_)
             | DataType::BigDecimal(_) => PgValue::Numeric(Numeric::default()), // Use Numeric for very large integers
-            DataType::Numeric(_) | DataType::Decimal(_) | DataType::Dec(_) => {
-                PgValue::Numeric(Numeric::default())
-            }
+            DataType::Numeric(_) | DataType::Decimal(_) | DataType::Dec(_) => PgValue::Numeric(Numeric::default()),
 
             // Floating point types
             DataType::Float(precision) => match precision {
                 Some(p) if p <= 24 => PgValue::Real(Default::default()),
                 _ => PgValue::Double(Default::default()),
             },
-            DataType::Float4 | DataType::Float32 | DataType::Real => {
-                PgValue::Real(Default::default())
-            }
+            DataType::Float4 | DataType::Float32 | DataType::Real => PgValue::Real(Default::default()),
             DataType::Float8 | DataType::Float64 | DataType::Double | DataType::DoublePrecision => {
                 PgValue::Double(Default::default())
             }
 
             // Character types
-            DataType::Char(_) | DataType::Character(_) | DataType::FixedString(_) => {
-                PgValue::Char((1, Vec::new()))
+            DataType::Char(_) | DataType::Character(_) | DataType::FixedString(_) => PgValue::Char((1, Vec::new())),
+            DataType::Varchar(_) | DataType::CharacterVarying(_) | DataType::CharVarying(_) | DataType::Nvarchar(_) => {
+                PgValue::Varchar((None, Vec::new()))
             }
-            DataType::Varchar(_)
-            | DataType::CharacterVarying(_)
-            | DataType::CharVarying(_)
-            | DataType::Nvarchar(_) => PgValue::Varchar((None, Vec::new())),
             DataType::Text
             | DataType::String(_)
             | DataType::CharacterLargeObject(_)
@@ -217,16 +203,15 @@ impl From<DataType> for PgValue {
                 TimezoneInfo::Tz => PgValue::TimestampTz(TimestampTz::default()),
                 _ => PgValue::Timestamp(Timestamp::default()),
             },
-            DataType::Datetime(_) => PgValue::Timestamp(Timestamp::default()), // Datetime is typically without timezone
+            DataType::Datetime(_) => PgValue::Timestamp(Timestamp::default()), /* Datetime is typically without
+                                                                                 * timezone */
             DataType::Datetime64(_, _) => PgValue::TimestampTz(TimestampTz::default()),
             DataType::Interval => PgValue::Interval(Interval::default()),
 
             // Binary types
-            DataType::Binary(_)
-            | DataType::Varbinary(_)
-            | DataType::Blob(_)
-            | DataType::Bytes(_)
-            | DataType::Bytea => PgValue::Bytea(Vec::new()),
+            DataType::Binary(_) | DataType::Varbinary(_) | DataType::Blob(_) | DataType::Bytes(_) | DataType::Bytea => {
+                PgValue::Bytea(Vec::new())
+            }
 
             // Boolean type
             DataType::Bool | DataType::Boolean => PgValue::Bool(false),
@@ -239,26 +224,32 @@ impl From<DataType> for PgValue {
             DataType::JSONB => PgValue::Jsonb(String::new()),
 
             // Complex types
-            DataType::Array(inner_type) => {
-                Self::convert_to_array_type(sqlparser::ast::DataType::Array(inner_type))
-            }
+            DataType::Array(inner_type) => Self::convert_to_array_type(sqlparser::ast::DataType::Array(inner_type)),
             DataType::Map(_, _) => PgValue::Jsonb(String::new()), // Represent maps as JSONB
             DataType::Tuple(fields) | DataType::Struct(fields) => {
                 PgValue::Hstore(Self::convert_fields_to_hstore(fields))
             }
-            DataType::Nested(columns) => {
-                PgValue::JsonArray(Self::convert_nested_to_json_array(columns))
-            }
-            DataType::Set(variants) => {
-                PgValue::JsonArray(Self::convert_set_to_json_array(variants))
-            }
-            DataType::Enum(_) | DataType::Union(_) => PgValue::Json(String::new()), // Represent enums and unions as JSON objects
+            DataType::Nested(columns) => PgValue::JsonArray(Self::convert_nested_to_json_array(columns)),
+            DataType::Set(variants) => PgValue::JsonArray(Self::convert_set_to_json_array(variants)),
+            DataType::Enum(_) | DataType::Union(_) => PgValue::Json(String::new()), /* Represent enums and unions as
+                                                                                      * JSON objects */
 
             // Special types
-            DataType::Regclass => PgValue::Integer(0), // Regclass is internally an OID, which is an unsigned 32-bit integer
-            DataType::Custom(name, _) => PgValue::Text(name.to_string()), // Custom types are represented as text
-            DataType::Nullable(inner_type) => PgValue::from(*inner_type), // Use the inner type, as all PgValues can be null
-            DataType::LowCardinality(inner_type) => PgValue::from(*inner_type), // PostgreSQL doesn't have a low cardinality concept
+            DataType::Regclass => PgValue::Integer(0),
+            DataType::Custom(name, _) => {
+                if let Some(ident) = name.0.first() {
+                    match ident.value.to_lowercase().as_str() {
+                        "serial" => PgValue::Integer(0),
+                        "smallserial" => PgValue::SmallInt(0),
+                        "bigserial" => PgValue::BigInt(0),
+                        _ => PgValue::Text(name.to_string()),
+                    }
+                } else {
+                    PgValue::Text(name.to_string())
+                }
+            }
+            DataType::Nullable(inner_type) => PgValue::from(*inner_type),
+            DataType::LowCardinality(inner_type) => PgValue::from(*inner_type),
             DataType::Unspecified => PgValue::Null,
         }
     }
@@ -302,9 +293,7 @@ impl PgValue {
         match PgValue::from(inner_type) {
             PgValue::BigInt(_) | PgValue::Int8(_) => PgValue::Int8Array(Vec::new()),
             PgValue::SmallInt(_) | PgValue::Int2(_) => PgValue::Int2Array(Vec::new()),
-            PgValue::Integer(_) | PgValue::Int(_) | PgValue::Int4(_) => {
-                PgValue::Int4Array(Vec::new())
-            }
+            PgValue::Integer(_) | PgValue::Int(_) | PgValue::Int4(_) => PgValue::Int4Array(Vec::new()),
             PgValue::Bool(_) | PgValue::Boolean(_) => PgValue::BoolArray(Vec::new()),
             PgValue::Double(_) | PgValue::Float8(_) => PgValue::Float8Array(Vec::new()),
             PgValue::Real(_) | PgValue::Float4(_) => PgValue::Float4Array(Vec::new()),
@@ -555,19 +544,14 @@ impl TryFrom<&PgValue> for Type {
     fn try_from(pg_value: &PgValue) -> Result<Self, Self::Error> {
         match pg_value {
             PgValue::Null => Err(anyhow!("Unable to map null to WIT type")),
-            PgValue::BigInt(_) | PgValue::Int8(_) | PgValue::BigSerial(_) | PgValue::Serial8(_) => {
-                Ok(Type::S64)
-            }
+            PgValue::BigInt(_) | PgValue::Int8(_) | PgValue::BigSerial(_) | PgValue::Serial8(_) => Ok(Type::S64),
             PgValue::Bool(_) | PgValue::Boolean(_) => Ok(Type::Bool),
             PgValue::Double(_) | PgValue::Float8(_) => Ok(Type::Named(Ident::new("hashable-f64"))),
             PgValue::Real(_) | PgValue::Float4(_) => Ok(Type::Named(Ident::new("hashable-f32"))),
             PgValue::Integer(_) | PgValue::Int(_) | PgValue::Int4(_) => Ok(Type::S32),
             PgValue::Numeric(_) | PgValue::Decimal(_) => Ok(Type::Named(Ident::new("numeric"))),
             PgValue::Serial(_) | PgValue::Serial4(_) => Ok(Type::U32),
-            PgValue::SmallInt(_)
-            | PgValue::Int2(_)
-            | PgValue::SmallSerial(_)
-            | PgValue::Serial2(_) => Ok(Type::S16),
+            PgValue::SmallInt(_) | PgValue::Int2(_) | PgValue::SmallSerial(_) | PgValue::Serial2(_) => Ok(Type::S16),
             PgValue::Bit(_) => {
                 let mut tuple = Tuple::empty();
                 tuple.type_(Type::U32);
@@ -583,20 +567,12 @@ impl TryFrom<&PgValue> for Type {
             PgValue::Bytea(_) => Ok(Type::List(Box::new(Type::U8))),
             PgValue::Int8Array(_) => Ok(Type::List(Box::new(Type::S64))),
             PgValue::BoolArray(_) => Ok(Type::List(Box::new(Type::Bool))),
-            PgValue::Float8Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new(
-                "hashable-f64",
-            ))))),
-            PgValue::Float4Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new(
-                "hashable-f32",
-            ))))),
+            PgValue::Float8Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("hashable-f64"))))),
+            PgValue::Float4Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("hashable-f32"))))),
             PgValue::Int4Array(_) => Ok(Type::List(Box::new(Type::S32))),
-            PgValue::NumericArray(_) => {
-                Ok(Type::List(Box::new(Type::Named(Ident::new("numeric")))))
-            }
+            PgValue::NumericArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("numeric"))))),
             PgValue::Int2Array(_) | PgValue::Int2Vector(_) => Ok(Type::List(Box::new(Type::S16))),
-            PgValue::Int2VectorArray(_) => {
-                Ok(Type::List(Box::new(Type::List(Box::new(Type::S16)))))
-            }
+            PgValue::Int2VectorArray(_) => Ok(Type::List(Box::new(Type::List(Box::new(Type::S16))))),
             PgValue::BitArray(_) => {
                 let mut inner_tuple = Tuple::empty();
                 inner_tuple.type_(Type::U32);
@@ -610,13 +586,10 @@ impl TryFrom<&PgValue> for Type {
                 Ok(Type::List(Box::new(Type::Tuple(inner_tuple))))
             }
             PgValue::ByteaArray(_) => Ok(Type::List(Box::new(Type::List(Box::new(Type::U8))))),
-            PgValue::Char(_) | PgValue::Varchar(_) | PgValue::Text(_) | PgValue::Name(_) => {
-                Ok(Type::String)
+            PgValue::Char(_) | PgValue::Varchar(_) | PgValue::Text(_) | PgValue::Name(_) => Ok(Type::String),
+            PgValue::CharArray(_) | PgValue::VarcharArray(_) | PgValue::TextArray(_) | PgValue::NameArray(_) => {
+                Ok(Type::List(Box::new(Type::String)))
             }
-            PgValue::CharArray(_)
-            | PgValue::VarcharArray(_)
-            | PgValue::TextArray(_)
-            | PgValue::NameArray(_) => Ok(Type::List(Box::new(Type::String))),
             PgValue::Date(_) => Ok(Type::Named(Ident::new("date"))),
             PgValue::DateArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("date"))))),
             PgValue::Time(_) => Ok(Type::Named(Ident::new("time"))),
@@ -624,17 +597,11 @@ impl TryFrom<&PgValue> for Type {
             PgValue::TimeTz(_) => Ok(Type::Named(Ident::new("time-tz"))),
             PgValue::TimeTzArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("time-tz"))))),
             PgValue::Timestamp(_) => Ok(Type::Named(Ident::new("timestamp"))),
-            PgValue::TimestampArray(_) => {
-                Ok(Type::List(Box::new(Type::Named(Ident::new("timestamp")))))
-            }
+            PgValue::TimestampArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("timestamp"))))),
             PgValue::TimestampTz(_) => Ok(Type::Named(Ident::new("timestamp-tz"))),
-            PgValue::TimestampTzArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new(
-                "timestamp-tz",
-            ))))),
+            PgValue::TimestampTzArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("timestamp-tz"))))),
             PgValue::Interval(_) => Ok(Type::Named(Ident::new("interval"))),
-            PgValue::IntervalArray(_) => {
-                Ok(Type::List(Box::new(Type::Named(Ident::new("interval")))))
-            }
+            PgValue::IntervalArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("interval"))))),
             PgValue::Uuid(_) => Ok(Type::String),
             PgValue::UuidArray(_) => Ok(Type::List(Box::new(Type::String))),
             PgValue::Xml(_) => Ok(Type::String),
@@ -665,12 +632,10 @@ impl TryFrom<&PgValue> for Type {
                 inner_tuple.type_(Type::Named(Ident::new("point")));
                 Ok(Type::List(Box::new(Type::Tuple(inner_tuple))))
             }
-            PgValue::Path(_) | PgValue::Polygon(_) => {
-                Ok(Type::List(Box::new(Type::Named(Ident::new("point")))))
-            }
-            PgValue::PathArray(_) | PgValue::PolygonArray(_) => Ok(Type::List(Box::new(
-                Type::List(Box::new(Type::Named(Ident::new("point")))),
-            ))),
+            PgValue::Path(_) | PgValue::Polygon(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("point"))))),
+            PgValue::PathArray(_) | PgValue::PolygonArray(_) => Ok(Type::List(Box::new(Type::List(Box::new(
+                Type::Named(Ident::new("point")),
+            ))))),
             PgValue::Circle(_) => {
                 let mut tuple = Tuple::empty();
                 tuple.type_(Type::Named(Ident::new("point")));
@@ -686,19 +651,13 @@ impl TryFrom<&PgValue> for Type {
             PgValue::Money(_) => Ok(Type::Named(Ident::new("numeric"))),
             PgValue::MoneyArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("numeric"))))),
             PgValue::Macaddr(_) => Ok(Type::Named(Ident::new("mac-address-eui48"))),
-            PgValue::MacaddrArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new(
-                "mac-address-eui48",
-            ))))),
+            PgValue::MacaddrArray(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("mac-address-eui48"))))),
             PgValue::Macaddr8(_) => Ok(Type::Named(Ident::new("mac-address-eui64"))),
-            PgValue::Macaddr8Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new(
-                "mac-address-eui64",
-            ))))),
+            PgValue::Macaddr8Array(_) => Ok(Type::List(Box::new(Type::Named(Ident::new("mac-address-eui64"))))),
             PgValue::Inet(_) | PgValue::Cidr(_) => Ok(Type::String),
             PgValue::InetArray(_) | PgValue::CidrArray(_) => Ok(Type::List(Box::new(Type::String))),
             PgValue::Json(_) | PgValue::Jsonb(_) => Ok(Type::String),
-            PgValue::JsonArray(_) | PgValue::JsonbArray(_) => {
-                Ok(Type::List(Box::new(Type::String)))
-            }
+            PgValue::JsonArray(_) | PgValue::JsonbArray(_) => Ok(Type::List(Box::new(Type::String))),
             PgValue::PgLsn(_) => Ok(Type::U64),
             PgValue::PgLsnArray(_) => Ok(Type::List(Box::new(Type::U64))),
             PgValue::TsQuery(_) => Ok(Type::String),
@@ -721,77 +680,75 @@ impl TryFrom<&PgValue> for Type {
     }
 }
 
-// impl Default for Interval {
-//     fn default() -> Self {
-//         Interval {
-//             end: Date::default(),
-//             end_inclusive: bool::default(),
-//             start: Date::default(),
-//             start_inclusive: bool::default(),
-//         }
-//     }
-// }
+impl Default for Interval {
+    fn default() -> Self {
+        Interval {
+            end: Date::default(),
+            end_inclusive: bool::default(),
+            start: Date::default(),
+            start_inclusive: bool::default(),
+        }
+    }
+}
 
-// impl Default for TimestampTz {
-//     fn default() -> Self {
-//         TimestampTz {
-//             offset: Offset::default(),
-//             timestamp: Timestamp::default(),
-//         }
-//     }
-// }
+impl Default for TimestampTz {
+    fn default() -> Self {
+        TimestampTz {
+            offset: Offset::default(),
+            timestamp: Timestamp::default(),
+        }
+    }
+}
 
-// impl Default for Offset {
-//     fn default() -> Self {
-//         // Default to UTC (no offset)
-//         Offset::WesternHemisphereSecs(0)
-//     }
-// }
+impl Default for Offset {
+    fn default() -> Self {
+        // Default to UTC (no offset)
+        Offset::WesternHemisphereSecs(0)
+    }
+}
 
-// impl Default for Timestamp {
-//     fn default() -> Self {
-//         Timestamp {
-//             date: Date::default(),
-//             time: Time::default(),
-//         }
-//     }
-// }
+impl Default for Timestamp {
+    fn default() -> Self {
+        Timestamp {
+            date: Date::default(),
+            time: Time::default(),
+        }
+    }
+}
 
-// impl Default for TimeTz {
-//     fn default() -> Self {
-//         TimeTz {
-//             timesonze: String::default(),
-//             time: Time::default(),
-//         }
-//     }
-// }
+impl Default for TimeTz {
+    fn default() -> Self {
+        TimeTz {
+            timesonze: String::default(),
+            time: Time::default(),
+        }
+    }
+}
 
-// impl Default for Date {
-//     fn default() -> Self {
-//         Date::PositiveInfinity
-//     }
-// }
+impl Default for Date {
+    fn default() -> Self {
+        Date::PositiveInfinity
+    }
+}
 
-// impl Default for Time {
-//     fn default() -> Self {
-//         Time {
-//             hour: 0,
-//             min: 0,
-//             sec: 0,
-//             micro: 0,
-//         }
-//     }
-// }
+impl Default for Time {
+    fn default() -> Self {
+        Time {
+            hour: 0,
+            min: 0,
+            sec: 0,
+            micro: 0,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use anyhow::Result;
-    use semver::Version;
-    use sqlparser::ast::DataType;
-    use wit_encoder::{
-        Ident, Interface, InterfaceItem, Package, PackageName, Type, TypeDef, TypeDefKind,
-    };
+    use sqlparser::ast::{CharacterLength, DataType, ExactNumberInfo, ObjectName};
+    use wit_encoder::{Ident, Type};
+
+    use super::*;
 
     #[test]
     fn test_str_to_pg_value() {
@@ -807,10 +764,7 @@ mod tests {
     #[test]
     fn test_pg_value_to_wit_type() -> Result<()> {
         assert_eq!(Type::try_from(&PgValue::Integer(0))?, Type::S32);
-        assert_eq!(
-            Type::try_from(&PgValue::Text("".to_string()))?,
-            Type::String
-        );
+        assert_eq!(Type::try_from(&PgValue::Text("".to_string()))?, Type::String);
         assert_eq!(Type::try_from(&PgValue::Bool(false))?, Type::Bool);
         assert_eq!(
             Type::try_from(&PgValue::Numeric(Numeric::default()))?,
@@ -820,10 +774,7 @@ mod tests {
             Type::try_from(&PgValue::Timestamp(Timestamp::default()))?,
             Type::Named(Ident::new("timestamp"))
         );
-        assert_eq!(
-            Type::try_from(&PgValue::Varchar((None, vec![])))?,
-            Type::String
-        );
+        assert_eq!(Type::try_from(&PgValue::Varchar((None, vec![])))?, Type::String);
 
         assert!(Type::try_from(&PgValue::Null).is_err());
 
@@ -844,16 +795,10 @@ mod tests {
         );
 
         // Test some network address types
-        assert_eq!(
-            Type::try_from(&PgValue::Inet("".to_string()))?,
-            Type::String
-        );
+        assert_eq!(Type::try_from(&PgValue::Inet("".to_string()))?, Type::String);
 
         // Test JSON types
-        assert_eq!(
-            Type::try_from(&PgValue::Json("{}".to_string()))?,
-            Type::String
-        );
+        assert_eq!(Type::try_from(&PgValue::Json("{}".to_string()))?, Type::String);
 
         Ok(())
     }
@@ -936,7 +881,11 @@ mod tests {
         );
 
         let expected_columns = vec![
-            ("id", DataType::Integer(None), false), // Changed from Serial to Integer
+            (
+                "id",
+                DataType::Custom(ObjectName(vec![sqlparser::ast::Ident::new("SERIAL")]), vec![]),
+                false,
+            ), // Changed from Serial to Integer
             (
                 "name",
                 DataType::Varchar(Some(CharacterLength::IntegerLength {
@@ -962,24 +911,14 @@ mod tests {
             ),
             (
                 "created_at",
-                DataType::Timestamp(None, TimezoneInfo::Tz),
+                DataType::Timestamp(None, TimezoneInfo::WithTimeZone),
                 true,
             ),
         ];
 
-        for (i, (expected_name, expected_type, expected_nullable)) in
-            expected_columns.iter().enumerate()
-        {
-            assert_eq!(
-                table.columns[i].name, *expected_name,
-                "Column {} name mismatch",
-                i
-            );
-            assert_eq!(
-                table.columns[i].data_type, *expected_type,
-                "Column {} type mismatch",
-                i
-            );
+        for (i, (expected_name, expected_type, expected_nullable)) in expected_columns.iter().enumerate() {
+            assert_eq!(table.columns[i].name, *expected_name, "Column {} name mismatch", i);
+            assert_eq!(table.columns[i].data_type, *expected_type, "Column {} type mismatch", i);
             assert_eq!(
                 table.columns[i].nullable, *expected_nullable,
                 "Column {} nullability mismatch",
@@ -992,14 +931,8 @@ mod tests {
 
     #[test]
     fn test_pgvalue_from_datatype() {
-        assert!(matches!(
-            PgValue::from(DataType::Int(None)),
-            PgValue::Integer(_)
-        ));
-        assert!(matches!(
-            PgValue::from(DataType::Varchar(None)),
-            PgValue::Varchar(_)
-        ));
+        assert!(matches!(PgValue::from(DataType::Int(None)), PgValue::Integer(_)));
+        assert!(matches!(PgValue::from(DataType::Varchar(None)), PgValue::Varchar(_)));
         assert!(matches!(PgValue::from(DataType::Boolean), PgValue::Bool(_)));
         assert!(matches!(PgValue::from(DataType::Date), PgValue::Date(_)));
         assert!(matches!(
