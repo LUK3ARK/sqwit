@@ -1,11 +1,16 @@
+use std::fmt::Write;
+
 use anyhow::{anyhow, Result};
+use semver::Version;
 use serde_json::json;
 use sqlparser::{
     ast::{ColumnDef, ColumnOption, DataType, Statement, StructField, TimezoneInfo},
     dialect::GenericDialect,
     parser::Parser,
 };
-use wit_encoder::{Field, Ident, Record, Tuple, Type};
+use wit_encoder::{
+    Field, Ident, Interface, InterfaceItem, Package, PackageName, Record, Tuple, Type, TypeDef, TypeDefKind,
+};
 
 use crate::wasmcloud::postgres::types::{
     Date, Interval, MacAddressEui48, MacAddressEui64, Numeric, Offset, PgValue, Time, TimeTz, Timestamp, TimestampTz,
@@ -16,68 +21,45 @@ wit_bindgen::generate!({
     with: { "wasmcloud:postgres/types@0.1.0-draft": generate, }
 });
 
-// TODO
 fn main() -> Result<()> {
-    // // Create a new package
-    // let package_name = PackageName::new(
-    //     "example-namespace",
-    //     Ident::new("example"),
-    //     Some(Version::new(0, 1, 0)),
-    // );
-    // let mut package = Package::new(package_name);
+    // Create a new package
+    let package_name = PackageName::new("example-namespace", Ident::new("example"), Some(Version::new(0, 1, 0)));
+    let mut package = Package::new(package_name);
 
-    // // Create the SQL table definition
-    // let sql_table = SqlTable {
-    //     name: Cow::Borrowed("users"),
-    //     columns: Cow::Owned(vec![
-    //         SqlColumn {
-    //             name: "id",
-    //             data_type: "integer",
-    //         },
-    //         SqlColumn {
-    //             name: "name",
-    //             data_type: "text",
-    //         },
-    //         SqlColumn {
-    //             name: "age",
-    //             data_type: "integer",
-    //         },
-    //         SqlColumn {
-    //             name: "is_active",
-    //             data_type: "boolean",
-    //         },
-    //         SqlColumn {
-    //             name: "balance",
-    //             data_type: "numeric",
-    //         },
-    //         SqlColumn {
-    //             name: "created_at",
-    //             data_type: "timestamp",
-    //         },
-    //     ]),
-    // };
+    // SQL to create the table
+    let sql = r#"
+    CREATE TABLE users (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(100) UNIQUE,
+        age INTEGER,
+        is_active BOOLEAN DEFAULT true,
+        balance NUMERIC(10,2),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    )
+    "#;
 
-    // // Create the "sql-types" interface
-    // let mut sql_types_interface = Interface::new(Ident::new("sql-types"));
+    // Parse the SQL to create SqlTable
+    let sql_table = SqlTable::parse(sql)?;
 
-    // // Create a WIT record for the SQL table
-    // let record = Record::try_from(sql_table.clone())?;
+    // Create the "sql-types" interface
+    let mut sql_types_interface = Interface::new(Ident::new("sql-types"));
 
-    // // TypeDef for the record
-    // let type_def = TypeDef::new(
-    //     Ident::new(sql_table.name.to_string()),
-    //     TypeDefKind::Record(record),
-    // );
+    // Create a WIT record for the SQL table
+    let record = Record::try_from(sql_table.clone())?;
 
-    // sql_types_interface.item(InterfaceItem::TypeDef(type_def));
+    // TypeDef for the record
+    let type_def = TypeDef::new(Ident::new(sql_table.name), TypeDefKind::Record(record));
 
-    // // Add interface to package
-    // package.interface(sql_types_interface);
+    sql_types_interface.item(InterfaceItem::TypeDef(type_def));
 
-    // let mut output = String::new();
-    // write!(output, "{}", package)?;
+    // Add interface to package
+    package.interface(sql_types_interface);
 
-    // println!("Rendered WIT:\n{}", output);
+    let mut output = String::new();
+    write!(output, "{}", package)?;
+
+    println!("Rendered WIT:\n{}", output);
 
     Ok(())
 }
@@ -107,7 +89,7 @@ impl SqlTable {
         match &ast[0] {
             Statement::CreateTable(create_table) => {
                 let table_name = create_table.name.to_string();
-                let parsed_columns: Vec<SqlColumn> = create_table.columns.iter().map(parse_column).collect();
+                let parsed_columns: Vec<SqlColumn> = create_table.columns.iter().map(SqlColumn::from).collect();
 
                 Ok(SqlTable {
                     name: table_name,
@@ -119,24 +101,26 @@ impl SqlTable {
     }
 }
 
-fn parse_column(col: &ColumnDef) -> SqlColumn {
-    let name = col.name.value.to_string();
-    let data_type = col.data_type.clone();
-    let nullable = !col.options.iter().any(|opt| {
-        matches!(
-            opt.option,
-            ColumnOption::NotNull
-                | ColumnOption::Unique {
-                    is_primary: true,
-                    characteristics: _
-                }
-        )
-    });
+impl From<&ColumnDef> for SqlColumn {
+    fn from(col: &ColumnDef) -> Self {
+        let name = col.name.value.to_string();
+        let data_type = col.data_type.clone();
+        let nullable = !col.options.iter().any(|opt| {
+            matches!(
+                opt.option,
+                ColumnOption::NotNull
+                    | ColumnOption::Unique {
+                        is_primary: true,
+                        characteristics: _
+                    }
+            )
+        });
 
-    SqlColumn {
-        name,
-        data_type,
-        nullable,
+        SqlColumn {
+            name,
+            data_type,
+            nullable,
+        }
     }
 }
 
@@ -329,184 +313,6 @@ impl PgValue {
             PgValue::Bit(_) => PgValue::BitArray(Vec::new()),
             PgValue::BitVarying(_) | PgValue::Varbit(_) => PgValue::VarbitArray(Vec::new()),
             PgValue::Int2Vector(_) => PgValue::Int2VectorArray(Vec::new()),
-            _ => PgValue::Null,
-        }
-    }
-}
-
-impl From<&str> for PgValue {
-    fn from(value: &str) -> Self {
-        match value.to_lowercase().as_str() {
-            // Numeric types
-            "bigint" | "int8" => PgValue::BigInt(0),
-            "bigserial" | "serial8" => PgValue::BigSerial(0),
-            "boolean" | "bool" => PgValue::Bool(false),
-            "double precision" | "float8" => PgValue::Double((0, 0, 0)),
-            "real" | "float4" => PgValue::Real((0, 0, 0)),
-            "integer" | "int" | "int4" => PgValue::Integer(0),
-            "numeric" | "decimal" => PgValue::Numeric("0".to_string()),
-            "serial" | "serial4" => PgValue::Serial(0),
-            "smallint" | "int2" => PgValue::SmallInt(0),
-            "smallserial" | "serial2" => PgValue::SmallSerial(0),
-
-            // Array types
-            "bigint[]" | "int8[]" => PgValue::Int8Array(vec![]),
-            "boolean[]" => PgValue::BoolArray(vec![]),
-            "double precision[]" | "float8[]" => PgValue::Float8Array(vec![]),
-            "real[]" | "float4[]" => PgValue::Float4Array(vec![]),
-            "integer[]" | "int[]" | "int4[]" => PgValue::Int4Array(vec![]),
-            "numeric[]" | "decimal[]" => PgValue::NumericArray(vec![]),
-            "smallint[]" | "int2[]" => PgValue::Int2Array(vec![]),
-
-            // Byte-related types
-            "bit" => PgValue::Bit((0, vec![])),
-            "bit[]" => PgValue::BitArray(vec![]),
-            "bit varying" | "varbit" => PgValue::BitVarying((None, vec![])),
-            "bit varying[]" | "varbit[]" => PgValue::VarbitArray(vec![]),
-            "bytea" => PgValue::Bytea(vec![]),
-            "bytea[]" => PgValue::ByteaArray(vec![]),
-
-            // Special types
-            "int2vector" => PgValue::Int2Vector(vec![]),
-            "int2vector[]" => PgValue::Int2VectorArray(vec![]),
-
-            // Geometric types
-            "box" => PgValue::Box(Default::default()),
-            "box[]" => PgValue::BoxArray(vec![]),
-            "circle" => PgValue::Circle(Default::default()),
-            "circle[]" => PgValue::CircleArray(vec![]),
-            "line" => PgValue::Line(Default::default()),
-            "line[]" => PgValue::LineArray(vec![]),
-            "lseg" => PgValue::Lseg(Default::default()),
-            "lseg[]" => PgValue::LsegArray(vec![]),
-            "path" => PgValue::Path(vec![]),
-            "path[]" => PgValue::PathArray(vec![]),
-            "point" => PgValue::Point(Default::default()),
-            "point[]" => PgValue::PointArray(vec![]),
-            "polygon" => PgValue::Polygon(vec![]),
-            "polygon[]" => PgValue::PolygonArray(vec![]),
-
-            // JSON types
-            "json" => PgValue::Json("{}".to_string()),
-            "json[]" => PgValue::JsonArray(vec![]),
-            "jsonb" => PgValue::Jsonb("{}".to_string()),
-            "jsonb[]" => PgValue::JsonbArray(vec![]),
-
-            // Money type
-            "money" => PgValue::Money("0".to_string()),
-            "money[]" => PgValue::MoneyArray(vec![]),
-
-            // Postgres-internal types
-            "pg_lsn" => PgValue::PgLsn(0),
-            "pg_lsn[]" => PgValue::PgLsnArray(vec![]),
-            "pg_snapshot" => PgValue::PgSnapshot((0, 0, vec![])),
-            "txid_snapshot" => PgValue::TxidSnapshot(0),
-
-            // Text types
-            "char" => PgValue::Char((1, vec![])),
-            s if s.starts_with("char(") => {
-                let size = s
-                    .trim_start_matches("char(")
-                    .trim_end_matches(')')
-                    .parse::<u32>()
-                    .unwrap_or(1);
-                PgValue::Char((size, vec![]))
-            }
-            "char[]" => PgValue::CharArray(vec![]),
-            "varchar" => PgValue::Varchar((None, vec![])),
-            s if s.starts_with("varchar(") => {
-                let size = s
-                    .trim_start_matches("varchar(")
-                    .trim_end_matches(')')
-                    .parse::<u32>()
-                    .ok();
-                PgValue::Varchar((size, vec![]))
-            }
-            "varchar[]" => PgValue::VarcharArray(vec![]),
-            "name" => PgValue::Name("".to_string()),
-            "name[]" => PgValue::NameArray(vec![]),
-            "text" => PgValue::Text("".to_string()),
-            "text[]" => PgValue::TextArray(vec![]),
-            "xml" => PgValue::Xml("".to_string()),
-            "xml[]" => PgValue::XmlArray(vec![]),
-
-            // Full Text Search types
-            "tsquery" => PgValue::TsQuery("".to_string()),
-            "tsvector" => PgValue::TsVector(vec![]),
-
-            // UUID types
-            "uuid" => PgValue::Uuid("00000000-0000-0000-0000-000000000000".to_string()),
-            "uuid[]" => PgValue::UuidArray(vec![]),
-
-            // Container types
-            "hstore" => PgValue::Hstore(vec![]),
-
-            // Date and Time types
-            "date" => PgValue::Date(Date::Ymd((1970, 1, 1))),
-            "date[]" => PgValue::DateArray(vec![]),
-            "time" => PgValue::Time(Time {
-                hour: 0,
-                min: 0,
-                sec: 0,
-                micro: 0,
-            }),
-            "time[]" => PgValue::TimeArray(vec![]),
-            "time with time zone" | "timetz" => PgValue::TimeTz(TimeTz {
-                timesonze: "UTC".to_string(),
-                time: Time {
-                    hour: 0,
-                    min: 0,
-                    sec: 0,
-                    micro: 0,
-                },
-            }),
-            "time with time zone[]" | "timetz[]" => PgValue::TimeTzArray(vec![]),
-            "timestamp" => PgValue::Timestamp(Timestamp {
-                date: Date::Ymd((1970, 1, 1)),
-                time: Time {
-                    hour: 0,
-                    min: 0,
-                    sec: 0,
-                    micro: 0,
-                },
-            }),
-            "timestamp[]" => PgValue::TimestampArray(vec![]),
-            "timestamp with time zone" | "timestamptz" => PgValue::TimestampTz(TimestampTz {
-                timestamp: Timestamp {
-                    date: Date::Ymd((1970, 1, 1)),
-                    time: Time {
-                        hour: 0,
-                        min: 0,
-                        sec: 0,
-                        micro: 0,
-                    },
-                },
-                offset: Offset::EasternHemisphereSecs(0),
-            }),
-            "timestamp with time zone[]" | "timestamptz[]" => PgValue::TimestampTzArray(vec![]),
-            "interval" => PgValue::Interval(Interval {
-                start: Date::Ymd((1970, 1, 1)),
-                start_inclusive: true,
-                end: Date::Ymd((1970, 1, 1)),
-                end_inclusive: true,
-            }),
-            "interval[]" => PgValue::IntervalArray(vec![]),
-
-            // Network Address types
-            "inet" => PgValue::Inet("0.0.0.0".to_string()),
-            "inet[]" => PgValue::InetArray(vec![]),
-            "cidr" => PgValue::Cidr("0.0.0.0/0".to_string()),
-            "cidr[]" => PgValue::CidrArray(vec![]),
-            "macaddr" => PgValue::Macaddr(MacAddressEui48 {
-                bytes: (0, 0, 0, 0, 0, 0),
-            }),
-            "macaddr[]" => PgValue::MacaddrArray(vec![]),
-            "macaddr8" => PgValue::Macaddr8(MacAddressEui64 {
-                bytes: (0, 0, 0, 0, 0, 0, 0, 0),
-            }),
-            "macaddr8[]" => PgValue::Macaddr8Array(vec![]),
-
-            // Default case
             _ => PgValue::Null,
         }
     }
