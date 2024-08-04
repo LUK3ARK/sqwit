@@ -1,4 +1,10 @@
-use std::{collections::HashMap, fmt::Write};
+use std::{
+    collections::HashMap,
+    fmt::Write,
+    fs::{self, File},
+    io::Write,
+    path::Path,
+};
 
 use anyhow::{anyhow, Result};
 use semver::Version;
@@ -22,17 +28,25 @@ wit_bindgen::generate!({
 });
 
 pub struct Generator {
+    package_namespace: String,
+    package_name: String,
     package: Package,
     sql_types_interface: Interface,
     tables: HashMap<String, Record>,
 }
 
 impl Generator {
-    pub fn new(namespace: impl Into<String>, name: impl Into<Ident>, version: Option<Version>) -> Self {
-        let package_name = PackageName::new(namespace, name, version);
-        let package = Package::new(package_name);
+    pub fn new(namespace: impl Into<String>, name: impl Into<String>, version: Option<Version>) -> Self {
+        let package_namespace = namespace.into();
+        let package_name = name.into();
+        let package_name_ident = Ident::new(&package_name);
+        let package_name_full = PackageName::new(&package_namespace, package_name_ident, version);
+        let package = Package::new(package_name_full);
         let sql_types_interface = Interface::new(Ident::new("sql-types"));
+
         Generator {
+            package_namespace,
+            package_name,
             package,
             sql_types_interface,
             tables: HashMap::new(),
@@ -56,6 +70,25 @@ impl Generator {
         let mut output = String::new();
         write!(output, "{}", self.package)?;
         Ok(output)
+    }
+
+    pub fn write_to_file(&mut self, output_dir: impl AsRef<Path>) -> Result<()> {
+        let output_path = output_dir
+            .as_ref()
+            .join(&self.package_namespace)
+            .join(&self.package_name)
+            .join("types.wit");
+
+        fs::create_dir_all(output_path.parent().unwrap())?;
+
+        let wit_content = self.render()?;
+
+        let mut file = File::create(&output_path)?;
+        file.write_all(wit_content.as_bytes())?;
+
+        println!("WIT types written to: {}", output_path.display());
+
+        Ok(())
     }
 }
 
